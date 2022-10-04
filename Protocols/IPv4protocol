@@ -1,0 +1,20 @@
+#IPv4protocols
+00=Hop-by-Hop
+01=ICMP
+02=IGMP
+06=TCP
+09=IGRP
+11=UDP
+2b=Routing
+2c=Fragment
+2f=GRE
+32=ESP
+33=AH
+39=SKIP
+3a=ICMPv6
+3b=No next header
+3c=Destination Options
+58=EIGRP
+59=OSPF
+67=PIM
+73=L2TP
