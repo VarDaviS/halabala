@@ -48,7 +48,7 @@ class MyDumper(yaml.Dumper):
 
 
 def Ethertype():
-    pkts = rdpcap("eth/eth-2.pcap")
+    pkts = rdpcap("traces/trace-1.pcap")
     etherTypeDictionary = Load_ethertype_dictionary()
     IPDictionary = Load_ipprotocol_dictionary()
     SnapDictionary = Load_snap_dictionary()
@@ -118,7 +118,6 @@ def Yaml(Packets, hex):
 
     for packet in Packets:
         x = {"frame_number": packet.frame_number,"len_frame_medium": packet.len_frame_medium, "len_frame_pcap": packet.len_frame_pcap,
-
              "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac}
         if packet.pid != None:
             x["pid"] = packet.pid
