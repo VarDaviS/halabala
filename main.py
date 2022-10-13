@@ -1,6 +1,5 @@
 from scapy.all import *
 from binascii import *
-from collections import Counter
 import yaml
 
 
@@ -23,20 +22,26 @@ class Packet:
     sap = None
 
 
-    def __init__(self, frame_number, frame_len_pcap=1, frame_type=None, source_mac=None, dest_mac=None,
-                 ether_type=None):
+    def __init__(self, frame_number, frame_len_pcap=1, frame_type=None, source_mac=None, dest_mac=None, ether_type=None):
         self.frame_number = frame_number
-        self.len_frame_pcap = frame_len_pcap
-        self.len_frame_medium = frame_len_pcap + 4
+        self.len_frame_pcap = int(frame_len_pcap/2)
+        self.len_frame_medium = int(frame_len_pcap/2) + 4 if int(frame_len_pcap/2) + 4 >64 else 64
         self.frame_type = frame_type
         self.src_mac = source_mac
         self.dst_mac = dest_mac
-        self.ether_type = ether_type
 
 
 
 def main():
-    Ethertype()
+    pcapname = "trace-26.pcap"
+    if pcapname[:3] == "eth":
+        file_path = "eth/"+pcapname
+    elif pcapname[:5] == "trace":
+        file_path = "traces/"+pcapname
+    else:
+        print("Wrong name of pcap")
+        return 1
+    Ethertype(pcapname,file_path)
 
 
 
@@ -47,11 +52,13 @@ class MyDumper(yaml.Dumper):
 
 
 
+
+
 """ Function which finds frame type, mac addresses, ethertype and ip """
 
 
-def Ethertype():
-    pkts = rdpcap("traces/trace-2.pcap")
+def Ethertype(pcapname, file_path):
+    pkts = rdpcap(file_path)
     etherTypeDictionary = Load_ethertype_dictionary()
     IPDictionary = Load_ipprotocol_dictionary()
     SnapDictionary = Load_snap_dictionary()
@@ -107,9 +114,8 @@ def Ethertype():
 
             Packets.append(packetObj)
 
-    ipcount = ipv4_counter(Packets)
     #print(len(ipcount))
-    Yaml(Packets, hex)
+    Yaml(Packets, hex,pcapname)
 
 
 def str_presenter(dumper, data):
@@ -123,15 +129,15 @@ def str_presenter(dumper, data):
 """Serialize data to .yaml formate"""
 
 
-def Yaml(Packets, hex):
+def Yaml(Packets, hex, pcapname):
     b = []
-
+    c = []
     for packet in Packets:
-        x = {"frame_number": packet.frame_number,"len_frame_medium": packet.len_frame_medium, "len_frame_pcap": packet.len_frame_pcap,
+        x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,"len_frame_medium": packet.len_frame_medium,
              "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac}
         if packet.pid != None:
             x["pid"] = packet.pid
-        elif packet.ether_type != None:
+        """elif packet.ether_type != None:
             x["ether_type"] = packet.ether_type
         if packet.src_ip != None:
             x["src_ip"] = packet.src_ip
@@ -142,15 +148,21 @@ def Yaml(Packets, hex):
             x["src_port"] = packet.src_port
             x["dst_port"] = packet.dst_port
         if packet.protocol == "TCP" and packet.app_protocol != None:
-            x["app_protocol"] = packet.app_protocol
+            x["app_protocol"] = packet.app_protocol"""
         if packet.sap != None:
             x["sap"] = packet.sap
 
 
         x["hexa_frame"] = packet.hexa_frame
         b.append(x)
-    data = {"name":"PKS2022/23","pcap_name": "all.pcap", "packets": b}
-    file_descriptor = open("neviiiim.yaml", "w")
+
+    ip = ipv4_counter(Packets)
+    values = ip.keys()
+    for i in values:
+        y = {"node":i,"number_of_sent_packets":ip[i]}
+        c.append(y)
+    data = {"name":"PKS2022/23","pcap_name": pcapname, "packets": b,"ipv4_senders":c}
+    file_descriptor = open("output.yaml", "w")
     print("h")
 
     yaml.add_representer(str, str_presenter)
@@ -318,6 +330,7 @@ def ipv4_counter(packets):
 
                 if ipCount[packet.src_ip] > count_of_packets_sent:
                     count_of_packets_sent = ipCount[packet.src_ip]
+
     return ipCount
 
 
