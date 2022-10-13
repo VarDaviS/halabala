@@ -1,5 +1,6 @@
 from scapy.all import *
 from binascii import *
+from collections import Counter
 import yaml
 
 
@@ -21,6 +22,7 @@ class Packet:
     pid = None
     sap = None
 
+
     def __init__(self, frame_number, frame_len_pcap=1, frame_type=None, source_mac=None, dest_mac=None,
                  ether_type=None):
         self.frame_number = frame_number
@@ -30,6 +32,7 @@ class Packet:
         self.src_mac = source_mac
         self.dst_mac = dest_mac
         self.ether_type = ether_type
+
 
 
 def main():
@@ -48,7 +51,7 @@ class MyDumper(yaml.Dumper):
 
 
 def Ethertype():
-    pkts = rdpcap("traces/trace-1.pcap")
+    pkts = rdpcap("traces/trace-2.pcap")
     etherTypeDictionary = Load_ethertype_dictionary()
     IPDictionary = Load_ipprotocol_dictionary()
     SnapDictionary = Load_snap_dictionary()
@@ -57,13 +60,16 @@ def Ethertype():
     Packets = []
     for packet in pkts:
         hex = hexlify(raw(packet)).decode()
+        if hex[0:12] == "01000c000000" or hex[0:12] == "03000c000000":
+            hex = hex[52:]
         destination_mac = Maccorection(hex[0:12])
         source_mac = Maccorection(hex[12:24])
         type_lenght = hex[24:28]
 
         packet_count += 1
         packetObj = Packet(packet_count, len(hex), None, source_mac, destination_mac)
-
+        data = hex[:]
+        packetObj.hexa_frame = hexa(data)
         """finds Frame type and its IP addreses,pid,"""
         if int(type_lenght, 16) > 1500:
             frame_type = "Ethernet II"
@@ -87,7 +93,7 @@ def Ethertype():
                 else:
                     pid = SnapDictionary[hex[92:96]]
                 packetObj.pid = pid
-                print("Pid:" + pid)
+                #print("Pid:" + pid)
             elif DSAP == 255:
                 frame_type = "IEEE 802.3 RAW"
                 packetObj.frame_type = frame_type
@@ -98,7 +104,11 @@ def Ethertype():
                     packetObj.sap = SapDictionary[hex[28:30]]
                     print("SAP:" + packetObj.sap)
             # Packets.append(Packet(packet_count,len(hex),ether,source_mac,destination_mac))
+
             Packets.append(packetObj)
+
+    ipcount = ipv4_counter(Packets)
+    #print(len(ipcount))
     Yaml(Packets, hex)
 
 
@@ -121,7 +131,7 @@ def Yaml(Packets, hex):
              "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac}
         if packet.pid != None:
             x["pid"] = packet.pid
-        """elif packet.ether_type != None:
+        elif packet.ether_type != None:
             x["ether_type"] = packet.ether_type
         if packet.src_ip != None:
             x["src_ip"] = packet.src_ip
@@ -132,12 +142,12 @@ def Yaml(Packets, hex):
             x["src_port"] = packet.src_port
             x["dst_port"] = packet.dst_port
         if packet.protocol == "TCP" and packet.app_protocol != None:
-            x["app_protocol"] = packet.app_protocol"""
+            x["app_protocol"] = packet.app_protocol
         if packet.sap != None:
             x["sap"] = packet.sap
 
 
-        x["hexa_frame"] = hexa(hex)
+        x["hexa_frame"] = packet.hexa_frame
         b.append(x)
     data = {"name":"PKS2022/23","pcap_name": "all.pcap", "packets": b}
     file_descriptor = open("neviiiim.yaml", "w")
@@ -294,12 +304,21 @@ def Load_app_dictionary():
                 app_protocol[key] = val
     return app_protocol
 
-def app_protocol(src_port,dst_port,app_protocol_dictionary):
 
-    if src_port in app_protocol_dictionary:
-        app_protocol = app_protocol_dictionary[src_port]
-    else:
-        app_protocol = app_protocol_dictionary[dst_port]
+
+def ipv4_counter(packets):
+    ipCount = {}
+    i = 0
+    count_of_packets_sent =0
+    for packet in packets:
+        if packet.ether_type == "IPv4":
+                if packet.src_ip in ipCount:
+                    ipCount[packet.src_ip] = ipCount[packet.src_ip]+1
+                else:ipCount[packet.src_ip] = 1
+
+                if ipCount[packet.src_ip] > count_of_packets_sent:
+                    count_of_packets_sent = ipCount[packet.src_ip]
+    return ipCount
 
 
 if __name__ == "__main__":
