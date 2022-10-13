@@ -17,6 +17,7 @@ class Packet:
     src_port = None
     dst_port = None
     app_protocol = None
+    arp_opcode = None
     hexa_frame = None
     pid = None
     sap = None
@@ -33,7 +34,7 @@ class Packet:
 
 
 def main():
-    pcapname = "trace-26.pcap"
+    pcapname = "trace-27.pcap"
     if pcapname[:3] == "eth":
         file_path = "eth/"+pcapname
     elif pcapname[:5] == "trace":
@@ -67,6 +68,7 @@ def Ethertype(pcapname, file_path):
     Packets = []
     for packet in pkts:
         hex = hexlify(raw(packet)).decode()
+        tempHex = hex[:]
         if hex[0:12] == "01000c000000" or hex[0:12] == "03000c000000":
             hex = hex[52:]
         destination_mac = Maccorection(hex[0:12])
@@ -74,14 +76,13 @@ def Ethertype(pcapname, file_path):
         type_lenght = hex[24:28]
 
         packet_count += 1
-        packetObj = Packet(packet_count, len(hex), None, source_mac, destination_mac)
-        data = hex[:]
+        packetObj = Packet(packet_count, len(tempHex), None, source_mac, destination_mac)
+        data = tempHex[:]
         packetObj.hexa_frame = hexa(data)
         """finds Frame type and its IP addreses,pid,"""
         if int(type_lenght, 16) > 1500:
-            frame_type = "Ethernet II"
+            frame_type = "ETHERNET II"
             packetObj.frame_type = frame_type
-            #print(packet_count)
 
             if type_lenght in etherTypeDictionary:
                 packetObj = IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj)
@@ -97,10 +98,7 @@ def Ethertype(pcapname, file_path):
                 packetObj.frame_type = frame_type
                 if hex[40:44] in SnapDictionary:
                     pid = SnapDictionary[hex[40:44]]
-                else:
-                    pid = SnapDictionary[hex[92:96]]
-                packetObj.pid = pid
-                #print("Pid:" + pid)
+                    packetObj.pid = pid
             elif DSAP == 255:
                 frame_type = "IEEE 802.3 RAW"
                 packetObj.frame_type = frame_type
@@ -109,13 +107,13 @@ def Ethertype(pcapname, file_path):
                 packetObj.frame_type = frame_type
                 if hex[28:30] in SapDictionary:
                     packetObj.sap = SapDictionary[hex[28:30]]
-                    print("SAP:" + packetObj.sap)
+
             # Packets.append(Packet(packet_count,len(hex),ether,source_mac,destination_mac))
 
             Packets.append(packetObj)
 
     #print(len(ipcount))
-    Yaml(Packets, hex,pcapname)
+    Yaml(Packets,pcapname)
 
 
 def str_presenter(dumper, data):
@@ -129,26 +127,30 @@ def str_presenter(dumper, data):
 """Serialize data to .yaml formate"""
 
 
-def Yaml(Packets, hex, pcapname):
+def Yaml(Packets, pcapname):
     b = []
     c = []
+    d = []
     for packet in Packets:
         x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,"len_frame_medium": packet.len_frame_medium,
              "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac}
         if packet.pid != None:
             x["pid"] = packet.pid
-        """elif packet.ether_type != None:
+        elif packet.ether_type != None:
             x["ether_type"] = packet.ether_type
+        if packet.arp_opcode != None:
+            x["arp_opcode"] = packet.arp_opcode
         if packet.src_ip != None:
             x["src_ip"] = packet.src_ip
             x["dst_ip"] = packet.dst_ip
         if packet.protocol != None:
             x["protocol"] = packet.protocol
-        if packet.src_port:
+
+        if packet.src_port != None:
             x["src_port"] = packet.src_port
             x["dst_port"] = packet.dst_port
         if packet.protocol == "TCP" and packet.app_protocol != None:
-            x["app_protocol"] = packet.app_protocol"""
+            x["app_protocol"] = packet.app_protocol
         if packet.sap != None:
             x["sap"] = packet.sap
 
@@ -156,14 +158,21 @@ def Yaml(Packets, hex, pcapname):
         x["hexa_frame"] = packet.hexa_frame
         b.append(x)
 
+
+
     ip = ipv4_counter(Packets)
-    values = ip.keys()
-    for i in values:
-        y = {"node":i,"number_of_sent_packets":ip[i]}
+    keys = list(ip.keys())
+    for i in keys:
+        y = {"node": i, "number_of_sent_packets": ip[i]}
         c.append(y)
-    data = {"name":"PKS2022/23","pcap_name": pcapname, "packets": b,"ipv4_senders":c}
+    values = list(ip.values())
+    for i in range(len(ip)):
+        if (values[i] == max(values)):
+            d.append(keys[i])
+        i += 1
+    data = {"name": "PKS2022/23", "pcap_name": pcapname, "packets": b,"ipv4_senders": c, "max_send_packets_by":d}
     file_descriptor = open("output.yaml", "w")
-    print("h")
+    print("output finished")
 
     yaml.add_representer(str, str_presenter)
     yaml.representer.SafeRepresenter.add_representer(str, str_presenter)
@@ -200,33 +209,31 @@ def IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj):
                 arpopcode = "REQUEST"
             packetObj.src_ip = IPCorection(hex[56:64])
             packetObj.dst_ip = IPCorection(hex[76:84])
-            packetObj.arpcode = arpopcode
-            packetObj.ether_type = "ARP"
+            packetObj.arp_opcode = arpopcode
         case "IPv4":
             protocol = IPDictionary[hex[46:48]]
             packetObj.src_ip = IPCorection(hex[52:60])
             packetObj.dst_ip = IPCorection(hex[60:68])
             packetObj.protocol = protocol
-            if protocol == ("TCP" or "UDP"):
+            if protocol == "TCP" or protocol == "UDP":
                 hex_src_port = hex[69:72]
                 hex_dst_port = hex[73:76]
                 packetObj.src_port = int(hex[68:72], 16)
                 packetObj.dst_port = int(hex[72:76],16)
-                if protocol == "TCP":
-                    if  hex_src_port in app_protocol_dictionary:
-                        packetObj.app_protocol = app_protocol_dictionary[hex_src_port]
-                    elif hex_dst_port in app_protocol_dictionary:
-                        packetObj.app_protocol = app_protocol_dictionary[hex_dst_port]
+                if  hex_src_port in app_protocol_dictionary:
+                    packetObj.app_protocol = app_protocol_dictionary[hex_src_port]
+                elif hex_dst_port in app_protocol_dictionary:
+                    packetObj.app_protocol = app_protocol_dictionary[hex_dst_port]
 
-            packetObj.ether_type = "IPv4"
         case "IPv6":
-            protocol = IPDictionary[hex[40:42]]
+            """protocol = IPDictionary[hex[40:42]]
             packetObj.src_ip = hex[44:48] + ":" + hex[48:52] + ":" + hex[52:56] + ":" + hex[60:64] + ":" + hex[64:68] + ":" + hex[68:72]
             packetObj.dst_ip = hex[72:76] + ":" + hex[80:84] + ":" + hex[84:88] + ":" + hex[92:96] + ":" + hex[96:100] + ":" + hex[100:104]
-            packetObj.protocol = protocol
-            packetObj.ether_type = "IPv6"
+            packetObj.protocol = protocol"""
+
         case _:
             print("Helll")
+    packetObj.ether_type = etherTypeDictionary[hex[24:28]]
     return packetObj
 
 
