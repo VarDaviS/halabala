@@ -19,9 +19,11 @@ class Packet:
     app_protocol = None
     arp_opcode = None
     hexa_frame = None
+    hexcode = None
     pid = None
     sap = None
-
+    flag = None
+    icmp_type = None
 
     def __init__(self, frame_number, frame_len_pcap=1, frame_type=None, source_mac=None, dest_mac=None, ether_type=None):
         self.frame_number = frame_number
@@ -34,7 +36,7 @@ class Packet:
 
 
 def main():
-    pcapname = "trace-27.pcap"
+    pcapname = "trace-15.pcap"
     if pcapname[:3] == "eth":
         file_path = "eth/"+pcapname
     elif pcapname[:5] == "trace":
@@ -64,6 +66,7 @@ def Ethertype(pcapname, file_path):
     IPDictionary = Load_ipprotocol_dictionary()
     SnapDictionary = Load_snap_dictionary()
     SapDictionary = Load_sap_dictionary()
+    icmpdict = Load_icmp_dictionary()
     packet_count = 0
     Packets = []
     for packet in pkts:
@@ -77,6 +80,7 @@ def Ethertype(pcapname, file_path):
 
         packet_count += 1
         packetObj = Packet(packet_count, len(tempHex), None, source_mac, destination_mac)
+        packetObj.hexcode = hex[:]
         data = tempHex[:]
         packetObj.hexa_frame = hexa(data)
         """finds Frame type and its IP addreses,pid,"""
@@ -85,7 +89,7 @@ def Ethertype(pcapname, file_path):
             packetObj.frame_type = frame_type
 
             if type_lenght in etherTypeDictionary:
-                packetObj = IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj)
+                packetObj = IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj,icmpdict)
                 Packets.append(packetObj)
             else:
                 Packets.append(packetObj)
@@ -111,7 +115,7 @@ def Ethertype(pcapname, file_path):
             # Packets.append(Packet(packet_count,len(hex),ether,source_mac,destination_mac))
 
             Packets.append(packetObj)
-
+    udp_filter(Packets)
     #print(len(ipcount))
     Yaml(Packets,pcapname)
 
@@ -170,8 +174,8 @@ def Yaml(Packets, pcapname):
         if (values[i] == max(values)):
             d.append(keys[i])
         i += 1
-    data = {"name": "PKS2022/23", "pcap_name": pcapname, "packets": b,"ipv4_senders": c, "max_send_packets_by":d}
-    file_descriptor = open("output.yaml", "w")
+    data = {"name": "PKS2022/23", "pcap_name": pcapname, "packets": b,"ipv4_senders": c, "max_send_packets_by": d}
+    file_descriptor = open("output6.yaml", "w")
     print("output finished")
 
     yaml.add_representer(str, str_presenter)
@@ -199,7 +203,7 @@ def IPCorection(hex):
 """from L3 it gets IP addreses and protocols"""
 
 
-def IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj):
+def IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj,icmpdict):
     app_protocol_dictionary = Load_app_dictionary()
     match etherTypeDictionary[hex[24:28]]:
         case "ARP":
@@ -226,13 +230,15 @@ def IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj):
                     packetObj.app_protocol = app_protocol_dictionary[hex_dst_port]
 
         case "IPv6":
-            """protocol = IPDictionary[hex[40:42]]
+            protocol = IPDictionary[hex[40:42]]
             packetObj.src_ip = hex[44:48] + ":" + hex[48:52] + ":" + hex[52:56] + ":" + hex[60:64] + ":" + hex[64:68] + ":" + hex[68:72]
             packetObj.dst_ip = hex[72:76] + ":" + hex[80:84] + ":" + hex[84:88] + ":" + hex[92:96] + ":" + hex[96:100] + ":" + hex[100:104]
-            packetObj.protocol = protocol"""
+            packetObj.protocol = protocol
+    if packetObj.protocol == "ICMP" and packetObj.hexcode[68:70] in icmpdict:
+        packetObj.icmp_type = icmpdict[packetObj.hexcode[68:70]]
 
-        case _:
-            print("Helll")
+
+
     packetObj.ether_type = etherTypeDictionary[hex[24:28]]
     return packetObj
 
@@ -255,6 +261,201 @@ def hexa(data):
         index += 2
     hexamess += "\n\n"
     return str(hexamess)
+
+
+def sameflag_packets(finding,packet):
+    if packet.protocol == "TCP" and finding.__contains__(packet.src_ip) and finding.__contains__(packet.dst_ip) and \
+            finding.__contains__(packet.src_port) and finding.__contains__(packet.dst_port):
+        return True
+    else: return False
+
+
+def tcp_filter(Packets):
+    finding = None
+    flag = {"02": "SYN", "12": "SYN", "10": "ACK", "01": "FIN", "11": "FIN", "04": "RST",}
+    pkts = Packets[:]
+    tcp = []
+    comunications = []
+    j = 0
+    appended = 0
+    start = 0
+    fincount = 0
+    rstcount = 0
+    finandack = 0
+    tcpcomunication_count = -1
+    while j < len(pkts):
+        j = 0
+        i = 0
+        while i < len(pkts):
+            if pkts[i].protocol == "TCP" and finding is None:
+                finding = (pkts[i].src_ip, pkts[i].dst_ip, pkts[i].dst_port, pkts[i].src_port)
+                tcpcomunication_count += 1
+            if sameflag_packets(finding, pkts[i])==True:
+                if pkts[i].hexcode[94:96] in flag:
+                    pkts[i].flag = flag[pkts[i].hexcode[94:96]]
+                tcp.append(pkts[i])
+                start += 1
+                print(start)
+                if pkts[i].flag == "FIN":
+                    fincount += 1
+                if pkts[i].flag == "RST":
+                    rstcount += 1
+                if pkts[i].flag == "FIN&ACK":
+                    finandack += 1
+                j -= 1
+
+            if fincount == 2:
+                appended = 0
+                temp = tcp[len(tcp)-2]
+                k = i
+                if temp.flag == "FIN":
+                    while appended < 2:
+                        k += 1
+                        if k == len(pkts):
+                             break
+                        if sameflag_packets(finding, pkts[k])==True:
+                            if pkts[k].hexcode[94:96] in flag:
+                                pkts[k].flag = flag[pkts[k].hexcode[94:96]]
+                            tcp.append(pkts[k])
+                            appended += 1
+
+                if temp.flag == "ACK":
+                    while appended < 1:
+                        k += 1
+                        if k == len(pkts):
+                            break
+                        if sameflag_packets(finding, pkts[k])==True:
+                            if pkts[k].hexcode[94:96] in flag:
+                                pkts[k].flag = flag[pkts[k].hexcode[94:96]]
+                            tcp.append(pkts[k])
+                            appended += 1
+
+                for pckt in tcp:
+                    print(pckt)
+                    pkts.remove(pckt)
+                comunications.append(tcp.copy())
+                tcp = []
+                break
+
+            if rstcount == 1:
+                j = 0
+                for pckt in tcp:
+                    pkts.remove(pckt)
+                comunications.append(tcp.copy())
+                tcp = []
+                break
+
+            if pkts[i].protocol != "TCP":
+                j += 1
+            i += 1
+
+        rstcount = 0
+        fincount = 0
+        finandack = 0
+        finding = None
+        for pckt in tcp:
+            pkts.remove(pckt)
+        if tcp != []:
+            comunications.append(tcp.copy())
+        tcp = []
+
+    print(comunications)
+
+
+def udp_filter(Packets):
+    pkts = Packets.copy()
+    i = 0
+    dst_port = None
+    comunications  = []
+    comunication = []
+    while len(pkts) > i:
+        if pkts[i].dst_port == 69 and pkts[i].protocol == "UDP":
+            src_port = pkts[i].src_port
+            j = i
+            comunication.append(pkts[i])
+            pkts.remove(pkts[i])
+            while len(pkts) > j:
+                if pkts[j].dst_port == src_port:
+                    dst_port = pkts[j].src_port
+                    comunication.append(pkts[j])
+                    pkts.remove(pkts[j])
+                    break
+                j += 1
+
+            if dst_port != None:
+                k = i
+                comports =[dst_port,src_port]
+                while len(pkts) > k:
+                    if comports.__contains__(pkts[k].src_port) and comports.__contains__(pkts[k].dst_port):
+                        comunication.append(pkts[k])
+                        pkts.remove(pkts[k])
+                        i = -1
+                    else: k += 1
+
+
+                comunications.append(comunication)
+                comunication = []
+        i += 1
+    print(comunications)
+
+
+def icmp_filter(Packets):
+    pkts = Packets.copy()
+    i = 0
+    pairs = []
+    singles = []
+    while i < len(pkts):
+        if pkts[i].icmp_type == "REQUEST":
+            src_add = pkts[i].src_ip
+            dst_add = pkts[i].dst_ip
+            k = i
+            while k < len(pkts):
+                if src_add == pkts[k].dst_ip and dst_add == pkts[k].src_ip and pkts[k].icmp_type == "REPLY":
+                    pairs.append(pkts[i])
+                    pairs.append(pkts[k])
+                    pkts.remove(pkts[k])
+                    pkts.remove(pkts[i])
+                    i -= 2
+                    break
+                k += 1
+        i += 1
+    print(len(pairs))
+    for packet in pkts:
+        if packet.protocol == "ICMP":
+            singles.append(packet)
+            pkts.remove(packet)
+    pairs.append(singles)
+    print(pairs)
+
+
+def arp_filter(Pakcets):
+    pkts = Pakcets[:]
+    i = 0
+    requesty = []
+    dvojice = []
+    alone = []
+    while i < len(pkts):
+        if pkts[i].arp_opcode == "REPLY":
+            macaddress = pkts[i].dst_mac
+            requesty.append(pkts[i])
+            pkts.remove(pkts[i])
+            for k in range(i-1).__reversed__():
+                if pkts[k].src_mac == macaddress and pkts[k].arp_opcode == "REQUEST":
+                    requesty.append(pkts[k])
+                    pkts.remove(pkts[k])
+
+                if k == 0:
+                    dvojice.append(requesty)
+                    requesty = []
+                    break
+        i += 1
+    i = 0
+    while i < len(pkts):
+        if pkts[i].ether_type == "ARP":
+            alone.append(pkts[i])
+        i += 1
+    dvojice.append(alone[:])
+    print(dvojice)
 
 
 """Define Ethertypes"""
@@ -311,6 +512,7 @@ def Load_snap_dictionary():
                 Snap[key] = val
     return Snap
 
+
 def Load_app_dictionary():
     filename = "Protocols/TCP"
     app_protocol = {}
@@ -323,6 +525,18 @@ def Load_app_dictionary():
                 app_protocol[key] = val
     return app_protocol
 
+
+def Load_icmp_dictionary():
+    filename = "Protocols/ICMP"
+    icmp = {}
+    with open(filename) as f:
+        for line in f:
+            if line[0] == "#":
+                line.strip()
+            else:
+                (key, val) = line.strip().split("=")
+                icmp[key] = val
+    return icmp
 
 
 def ipv4_counter(packets):
