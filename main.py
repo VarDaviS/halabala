@@ -36,7 +36,7 @@ class Packet:
 
 
 def main():
-    pcapname = "trace-15.pcap"
+    pcapname = "trace-14.pcap"
     if pcapname[:3] == "eth":
         file_path = "eth/"+pcapname
     elif pcapname[:5] == "trace":
@@ -47,14 +47,10 @@ def main():
     Ethertype(pcapname,file_path)
 
 
-
 class MyDumper(yaml.Dumper):
 
     def increase_indent(self, flow=False, indentless=False):
         return super(MyDumper, self).increase_indent(flow, False)
-
-
-
 
 
 """ Function which finds frame type, mac addresses, ethertype and ip """
@@ -67,6 +63,7 @@ def Ethertype(pcapname, file_path):
     SnapDictionary = Load_snap_dictionary()
     SapDictionary = Load_sap_dictionary()
     icmpdict = Load_icmp_dictionary()
+    app_protocol_dictionary = Load_app_dictionary()
     packet_count = 0
     Packets = []
     for packet in pkts:
@@ -115,9 +112,39 @@ def Ethertype(pcapname, file_path):
             # Packets.append(Packet(packet_count,len(hex),ether,source_mac,destination_mac))
 
             Packets.append(packetObj)
-    udp_filter(Packets)
-    #print(len(ipcount))
-    Yaml(Packets,pcapname)
+
+    while (1):
+        searching = input("")
+        minusp = searching[0:2]
+        protocol = searching[3:]
+        protocol.removesuffix("\n")
+        values = app_protocol_dictionary.values()
+
+        if minusp == "-p":
+            if protocol in values:
+                tcp_filter(Packets,protocol.upper(),pcapname)
+                print("Output finished")
+            elif protocol == "ARP":
+                arp_filter(Packets,pcapname)
+                print("Output finished")
+            elif protocol == "ICMP":
+                icmp_filter(Packets,pcapname)
+                print("Output finished")
+            elif protocol == "UDP":
+                udp_filter(Packets,pcapname)
+                print("Output finished")
+            elif protocol == "ALL":
+                Yaml(Packets,pcapname)
+                print("Output finished")
+            elif protocol == "-help":
+                print("HTTPS\tHTTP\ttelnet\tftp-datove\tftp\tftp-kontrolne\tSSH\nARP\nICMP\nUDP\nALL\nexit - to end the program")
+            else:print("Wrong input")
+        elif searching == "exit":
+            exit(0)
+        else:
+            print("wrong input dopici")
+            print(minusp)
+
 
 
 def str_presenter(dumper, data):
@@ -157,13 +184,12 @@ def Yaml(Packets, pcapname):
             x["app_protocol"] = packet.app_protocol
         if packet.sap != None:
             x["sap"] = packet.sap
+        if packet.icmp_type != None:
+            x["icmp_type"] = packet.icmp_type
 
 
         x["hexa_frame"] = packet.hexa_frame
         b.append(x)
-
-
-
     ip = ipv4_counter(Packets)
     keys = list(ip.keys())
     for i in keys:
@@ -175,8 +201,8 @@ def Yaml(Packets, pcapname):
             d.append(keys[i])
         i += 1
     data = {"name": "PKS2022/23", "pcap_name": pcapname, "packets": b,"ipv4_senders": c, "max_send_packets_by": d}
-    file_descriptor = open("output6.yaml", "w")
-    print("output finished")
+    file_descriptor = open("ALLoutput.yaml", "w")
+
 
     yaml.add_representer(str, str_presenter)
     yaml.representer.SafeRepresenter.add_representer(str, str_presenter)
@@ -225,9 +251,9 @@ def IPFinder(hex, etherTypeDictionary, IPDictionary, packetObj,icmpdict):
                 packetObj.src_port = int(hex[68:72], 16)
                 packetObj.dst_port = int(hex[72:76],16)
                 if  hex_src_port in app_protocol_dictionary:
-                    packetObj.app_protocol = app_protocol_dictionary[hex_src_port]
+                    packetObj.app_protocol = app_protocol_dictionary[hex_src_port].upper()
                 elif hex_dst_port in app_protocol_dictionary:
-                    packetObj.app_protocol = app_protocol_dictionary[hex_dst_port]
+                    packetObj.app_protocol = app_protocol_dictionary[hex_dst_port].upper()
 
         case "IPv6":
             protocol = IPDictionary[hex[40:42]]
@@ -270,13 +296,15 @@ def sameflag_packets(finding,packet):
     else: return False
 
 
-def tcp_filter(Packets):
+def tcp_filter(Packets,appprotocol,pcapname):
     finding = None
-    flag = {"02": "SYN", "12": "SYN", "10": "ACK", "01": "FIN", "11": "FIN", "04": "RST",}
+    flag = {"02": "SYN","18":"ACK", "12": "SYN","19" : "FIN", "10": "ACK", "01": "FIN", "11": "FIN", "04": "RST","14": "RST"}
     pkts = Packets[:]
     tcp = []
     comunications = []
     j = 0
+    fullcoms = []
+    partcoms = []
     appended = 0
     start = 0
     fincount = 0
@@ -295,7 +323,6 @@ def tcp_filter(Packets):
                     pkts[i].flag = flag[pkts[i].hexcode[94:96]]
                 tcp.append(pkts[i])
                 start += 1
-                print(start)
                 if pkts[i].flag == "FIN":
                     fincount += 1
                 if pkts[i].flag == "RST":
@@ -331,13 +358,14 @@ def tcp_filter(Packets):
                             appended += 1
 
                 for pckt in tcp:
-                    print(pckt)
+
                     pkts.remove(pckt)
                 comunications.append(tcp.copy())
                 tcp = []
                 break
 
             if rstcount == 1:
+                fincount = 0
                 j = 0
                 for pckt in tcp:
                     pkts.remove(pckt)
@@ -358,11 +386,110 @@ def tcp_filter(Packets):
         if tcp != []:
             comunications.append(tcp.copy())
         tcp = []
+    for comunication in comunications:
+        if comunication[0].flag =="SYN" and comunication[1].flag == "SYN":
+            if ((comunication[len(comunication)-4].flag == "FIN" or comunication[len(comunication)-5].flag == "FIN") and (comunication[len(comunication)-3].flag == "FIN" or comunication[len(comunication)-2].flag == "FIN")) or comunication[len(comunication)-1].flag == "RST"\
+                    or (comunication[len(comunication)-3].flag == "FIN" and comunication[len(comunication)-2].flag == "FIN"):
+                fullcoms.append(comunication)
+            else:
+                partcoms.append(comunication)
+        else:partcoms.append(comunication)
 
-    print(comunications)
+    tcp_yaml_dump(fullcoms,partcoms,appprotocol,pcapname)
 
 
-def udp_filter(Packets):
+def tcp_yaml_dump(fulcoms,partcoms,appprotocol,pcapname):
+    b = []
+    d = []
+    c = []
+    parthouse = []
+    fullhouse = []
+    m = []
+    n = []
+    i = 1
+    j = 0
+    src_ip = []
+    dst_ip = []
+    for Packets in fulcoms:
+        for packet in Packets:
+            x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,
+                 "len_frame_medium": packet.len_frame_medium,
+                 "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac,
+                 "ether_type": packet.ether_type, "src_ip": packet.src_ip, "dst_ip": packet.dst_ip,
+                 "protocol": packet.protocol, "app_protocol": packet.app_protocol,
+                 "src_port": packet.src_port, "dst_port": packet.dst_port, "hexa_frame": packet.hexa_frame}
+            if j <= len(src_ip):
+                src_ip.append(packet.src_ip)
+                dst_ip.append(packet.dst_ip)
+            b.append(x)
+        j += 1
+        d.append(b)
+        b = []
+
+    for a in d:
+        packetstay = 0
+        for gulas in a:
+            if gulas['app_protocol'] == appprotocol:
+                packetstay = 1
+
+        if packetstay == 1:
+            m.append(a)
+
+    j = 0
+    while j < len(m):
+        complete = {"number_comm": i, "src_comm": src_ip[j], "dst_comm": dst_ip[j], "packets": m[j]}
+        j += 1
+        i += 1
+        fullhouse.append(complete)
+
+    if partcoms != []:
+        for packets in partcoms:
+            for packet in packets:
+                x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,
+                     "len_frame_medium": packet.len_frame_medium,
+                     "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac,
+                     "ether_type": packet.ether_type, "src_ip": packet.src_ip, "dst_ip": packet.dst_ip,
+                     "protocol": packet.protocol, "app_protocol":packet.app_protocol,
+                     "src_port": packet.src_port, "dst_port": packet.dst_port, "hexa_frame": packet.hexa_frame}
+                if src_ip is None:
+                    src_ip = packet.src_ip
+                    dst_ip = packet.dst_ip
+                b.append(x)
+            c.append(b)
+            b = []
+        n = []
+        for a in c:
+            packetstay = 0
+            for packet in a:
+                if packet["app_protocol"] == appprotocol:
+                    packetstay = 1
+                    break
+            if packetstay == 1:
+                n.append(a)
+    i = 1
+    j = 0
+    while j < len(n):
+        complete = {"number_comm": i, "packets": n[j]}
+        j += 1
+        i += 1
+        parthouse.append(complete)
+
+
+    data = {"name": "PKS2022/23", "pcap_name": pcapname}
+    if fullhouse != []:
+        data["complete_comms"] = fullhouse
+    if parthouse != []:
+        data["partial_comms"] = parthouse
+
+    file_descriptor = open("TCPoutput.yaml", "w")
+
+
+    yaml.add_representer(str, str_presenter)
+    yaml.representer.SafeRepresenter.add_representer(str, str_presenter)
+    yaml.dump(data, file_descriptor, Dumper=MyDumper, sort_keys=False, indent=2)
+
+
+def udp_filter(Packets,pcapname):
     pkts = Packets.copy()
     i = 0
     dst_port = None
@@ -396,39 +523,140 @@ def udp_filter(Packets):
                 comunications.append(comunication)
                 comunication = []
         i += 1
-    print(comunications)
+
+    udpYamlDump(comunications,pcapname)
 
 
-def icmp_filter(Packets):
+def udpYamlDump(comunications,pcapname):
+    b = []
+    d = []
+    fullhouse = []
+    coms = {}
+    i = 1
+    j = 0
+    src_ip = []
+    dst_ip = []
+    for Packets in comunications:
+        for packet in Packets:
+            x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,
+                 "len_frame_medium": packet.len_frame_medium,
+                 "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac,
+                 "ether_type": packet.ether_type,"src_ip":packet.src_ip,"dst_ip":packet.dst_ip,"protocol":packet.protocol,
+                 "src_port": packet.src_port,"dst_port":packet.dst_port,"hexa_frame":packet.hexa_frame}
+            if j <= len(src_ip):
+                src_ip.append(packet.src_ip)
+                dst_ip.append(packet.dst_ip)
+            b.append(x)
+        j += 1
+        d.append(b)
+        b = []
+    j = 0
+    while j < len(d):
+        complete = {"number_comm": i, "src_comm": d[j][0]["src_ip"], "dst_comm":d[j][0]["dst_ip"], "packets": d[j]}
+        j += 1
+        i += 1
+        fullhouse.append(complete)
+
+
+    data = {"name": "PKS2022/23", "pcap_name":pcapname}
+    if fullhouse!= []:
+        data["complete_comms"]=fullhouse
+    file_descriptor = open("UDPoutput.yaml", "w")
+
+
+    yaml.add_representer(str, str_presenter)
+    yaml.representer.SafeRepresenter.add_representer(str, str_presenter)
+    yaml.dump(data, file_descriptor, Dumper=MyDumper, sort_keys=False, indent=2)
+
+
+def icmp_filter(Packets,pcapname):
     pkts = Packets.copy()
     i = 0
+    pair = []
     pairs = []
     singles = []
     while i < len(pkts):
         if pkts[i].icmp_type == "REQUEST":
             src_add = pkts[i].src_ip
             dst_add = pkts[i].dst_ip
-            k = i
+            k = i+1
             while k < len(pkts):
                 if src_add == pkts[k].dst_ip and dst_add == pkts[k].src_ip and pkts[k].icmp_type == "REPLY":
-                    pairs.append(pkts[i])
-                    pairs.append(pkts[k])
+                    pair.append(pkts[i])
+                    pair.append(pkts[k])
                     pkts.remove(pkts[k])
                     pkts.remove(pkts[i])
-                    i -= 2
+                    i -= 1
+
+                if pair != []:
+                    pairs.append(pair)
+                    pair = []
                     break
                 k += 1
         i += 1
-    print(len(pairs))
+
     for packet in pkts:
         if packet.protocol == "ICMP":
             singles.append(packet)
             pkts.remove(packet)
     pairs.append(singles)
-    print(pairs)
+    icmpYamlDump(pairs,pcapname)
 
 
-def arp_filter(Pakcets):
+def icmpYamlDump(comunications,pcapname):
+    b = []
+    d = []
+    fullhouse = []
+    listes = []
+    k = 0
+    i = 1
+    j = 0
+    src_ip = []
+    dst_ip = []
+    partialcomms = []
+    for Packets in comunications:
+        for packet in Packets:
+            x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,
+                 "len_frame_medium": packet.len_frame_medium,
+                 "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac,
+                 "ether_type": packet.ether_type, "src_ip": packet.src_ip, "dst_ip": packet.dst_ip,
+                 "protocol": packet.protocol, "icmp_type": packet.icmp_type, "hexa_frame": packet.hexa_frame}
+            if j <= len(src_ip):
+                src_ip.append(packet.src_ip)
+                dst_ip.append(packet.dst_ip)
+            b.append(x)
+        j += 1
+        d.append(b)
+        b = []
+    j = 0
+    while j < len(d)-1:
+        complete = {"number_comm": i, "src_comm": d[j][0]["src_ip"], "dst_comm": d[j][0]["dst_ip"], "packets": d[j]}
+        j += 1
+        i += 1
+        fullhouse.append(complete)
+
+    while k < len(d[j]):
+        listes = [d[j][k]]
+        incomplete = {"number_comm": k+1, "packets":listes}
+        partialcomms.append(incomplete)
+        k += 1
+
+    data = {"name": "PKS2022/23", "pcap_name": pcapname}
+
+    if fullhouse != []:
+        data["complete_comms"] = fullhouse
+    if partialcomms != [] :
+        data["partial_comms"] = partialcomms
+
+    file_descriptor = open("ICMPoutput.yaml", "w")
+
+
+    yaml.add_representer(str, str_presenter)
+    yaml.representer.SafeRepresenter.add_representer(str, str_presenter)
+    yaml.dump(data, file_descriptor, Dumper=MyDumper, sort_keys=False, indent=2)
+
+
+def arp_filter(Pakcets,pcapname):
     pkts = Pakcets[:]
     i = 0
     requesty = []
@@ -437,14 +665,14 @@ def arp_filter(Pakcets):
     while i < len(pkts):
         if pkts[i].arp_opcode == "REPLY":
             macaddress = pkts[i].dst_mac
-            requesty.append(pkts[i])
-            pkts.remove(pkts[i])
-            for k in range(i-1).__reversed__():
+
+            for k in range(i).__reversed__():
                 if pkts[k].src_mac == macaddress and pkts[k].arp_opcode == "REQUEST":
                     requesty.append(pkts[k])
+                    requesty.append(pkts[i])
+                    pkts.remove(pkts[i])
                     pkts.remove(pkts[k])
-
-                if k == 0:
+                    i -= 1
                     dvojice.append(requesty)
                     requesty = []
                     break
@@ -454,8 +682,55 @@ def arp_filter(Pakcets):
         if pkts[i].ether_type == "ARP":
             alone.append(pkts[i])
         i += 1
-    dvojice.append(alone[:])
-    print(dvojice)
+    dvojice.append(alone)
+    arpYamlDump(dvojice,pcapname)
+
+
+
+def arpYamlDump(comunications,pcapname):
+    b = []
+    d = []
+    fullhouse = []
+    k = 0
+    i = 1
+    j = 0
+    src_ip = None
+    dst_ip = None
+    partialcomms = []
+    for Packets in comunications:
+
+        for packet in Packets:
+            x = {"frame_number": packet.frame_number, "len_frame_pcap": packet.len_frame_pcap,
+                 "len_frame_medium": packet.len_frame_medium,
+                 "frame_type": packet.frame_type, "src_mac": packet.src_mac, "dst_mac": packet.dst_mac,
+                 "ether_type": packet.ether_type, "arp_opcode": packet.arp_opcode,"src_ip": packet.src_ip, "dst_ip": packet.dst_ip,
+                  "hexa_frame": packet.hexa_frame}
+            if src_ip is None:
+                src_ip = packet.src_ip
+                dst_ip = packet.dst_ip
+            b.append(x)
+        d.append(b)
+        b = []
+    while j < len(d)-1:
+        complete = {"number_comm": i, "src_comm": src_ip, "dst_comm": dst_ip, "packets": d[j]}
+        j += 1
+        i += 1
+        fullhouse.append(complete)
+    while k < len(d[j]):
+        complete = {"number_comm": k+1, "src_comm": src_ip, "dst_comm": dst_ip, "packets": d[j][k]}
+        partialcomms.append(complete)
+        k += 1
+
+    data = {"name": "PKS2022/23", "pcap_name": pcapname}
+    if fullhouse != []:
+        data["complete_comms"] = fullhouse
+    if partialcomms != []:
+        data["partial_comms"] = partialcomms
+    file_descriptor = open("ARPoutput.yaml", "w")
+
+    yaml.add_representer(str, str_presenter)
+    yaml.representer.SafeRepresenter.add_representer(str, str_presenter)
+    yaml.dump(data, file_descriptor, Dumper=MyDumper, sort_keys=False, indent=2)
 
 
 """Define Ethertypes"""

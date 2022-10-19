@@ -1,8 +1,8 @@
 #TCPports
 007 echo
 013 chargen
-014 ftp-data
-015 ftp-control
+014 ftp-datove
+015 ftp-kontrolne
 016 ssh
 017 telnet
 019 smtp

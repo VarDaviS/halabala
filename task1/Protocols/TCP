@@ -1,0 +1,21 @@
+#TCPports
+007 echo
+013 chargen
+014 ftp-data
+015 ftp-control
+016 ssh
+017 telnet
+019 smtp
+035 domain
+04f finger
+050 http
+06e pop3
+06f sunrpc
+077 nntp
+08b netbios-ssn
+08f imap
+0b3 bgp
+185 ldap
+1bb https
+1bd microsoft-ds
+438 socks
